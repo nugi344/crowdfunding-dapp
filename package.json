@@ -1,0 +1,11 @@
+{
+  "name": "crowdfunding-dapp",
+  "version": "1.0.0",
+  "description": "A decentralized crowdfunding platform on Sepolia testnet",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.0.2",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.10"
+  }
+}
