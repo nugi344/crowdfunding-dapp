@@ -1,22 +1,49 @@
 import React, { useState, useEffect } from "react";
+import { Web3ReactProvider, useWeb3React } from "@web3-react/core";
+import { InjectedConnector } from "@web3-react/injected-connector";
+import { WalletConnectConnector } from "@web3-react/walletconnect-connector";
+import { CoinbaseWallet } from "@web3-react/coinbase-wallet";
 import { Alchemy, Network } from "alchemy-sdk";
 import { ethers } from "ethers";
 import CrowdfundingABI from "./artifacts/Crowdfunding.json";
 import "./App.css";
 
-const CONTRACT_ADDRESS = "0x8AF78d7f6A41666BbE56B458cE0e69B42f55374D";
+const CONTRACT_ADDRESS = "0xNewAddress";
 const ALCHEMY_API_KEY = "zzSjioVesL9pCx05zoTo9it5IbKP84qp";
+const TOKENS = [
+  { name: "ETH", address: "0x0000000000000000000000000000000000000000" },
+  { name: "USDT", address: "0xaA8E23FB1079EA71e0a56F48a2aA51851D8433D0" },
+];
 
-function App() {
+const injected = new InjectedConnector({ supportedChainIds: [11155111] }); // Sepolia
+const walletconnect = new WalletConnectConnector({
+  rpc: { 11155111: `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}` },
+  qrcode: true,
+});
+const coinbaseWallet = new CoinbaseWallet({
+  appName: "Crowdfunding DApp",
+  url: `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
+  chainId: 11155111,
+});
+
+function getLibrary(provider) {
+  return new ethers.BrowserProvider(provider);
+}
+
+function AppContent() {
+  const { active, account, activate, deactivate, library } = useWeb3React();
   const [contract, setContract] = useState(null);
-  const [account, setAccount] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [goal, setGoal] = useState("");
   const [duration, setDuration] = useState("");
+  const [email, setEmail] = useState("");
+  const [description, setDescription] = useState("");
+  const [details, setDetails] = useState("");
   const [donationAmount, setDonationAmount] = useState("");
-  const [campaignId, setCampaignId] = useState("");
+  const [selectedCampaignToken, setSelectedCampaignToken] = useState(TOKENS[0].address);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [connecting, setConnecting] = useState(false);
 
   const fetchCampaigns = async () => {
     if (!contract) return;
@@ -24,15 +51,23 @@ function App() {
     try {
       const count = await contract.campaignCount();
       const campaignsArray = [];
+      const now = Math.floor(Date.now() / 1000);
       for (let i = 1; i <= count; i++) {
         const campaign = await contract.campaigns(i);
+        const tokenAddr = await contract.campaignTokens(i);
+        const deadline = Number(campaign.deadline);
         campaignsArray.push({
           id: i,
           creator: campaign.creator,
           goal: ethers.formatEther(campaign.goal),
           raised: ethers.formatEther(campaign.raised),
-          deadline: new Date(Number(campaign.deadline) * 1000).toLocaleString(),
+          deadline: new Date(deadline * 1000).toLocaleString(),
           completed: campaign.completed,
+          isActive: deadline > now && !campaign.completed,
+          email: campaign.email,
+          description: campaign.description,
+          details: campaign.details,
+          token: tokenAddr,
         });
       }
       setCampaigns(campaignsArray);
@@ -45,122 +80,100 @@ function App() {
   };
 
   useEffect(() => {
-    const init = async () => {
-      if (!window.ethereum) {
-        setError("MetaMask is not installed");
-        return;
-      }
-
-      setLoading(true);
-      try {
-        const alchemy = new Alchemy({
-          apiKey: ALCHEMY_API_KEY,
-          network: Network.ETH_SEPOLIA,
-        });
-
-        const accounts = await window.ethereum.request({
-          method: "eth_accounts",
-        });
-
-        if (accounts.length > 0) {
-          setAccount(accounts[0]);
-        } else {
-          try {
-            await window.ethereum.request({
-              method: "eth_requestAccounts",
-            });
-            const newAccounts = await window.ethereum.request({
-              method: "eth_accounts",
-            });
-            setAccount(newAccounts[0]);
-          } catch (err) {
-            if (err.code === -32002) {
-              setError("MetaMask connection request pending. Please check MetaMask.");
-            } else {
-              setError("Failed to connect MetaMask");
-            }
-            return;
-          }
+    if (active && library) {
+      const initContract = async () => {
+        try {
+          const signer = await library.getSigner();
+          const newContract = new ethers.Contract(CONTRACT_ADDRESS, CrowdfundingABI.abi, signer);
+          setContract(newContract);
+        } catch (err) {
+          setError(err.reason || "Failed to initialize contract");
         }
-
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        const newContract = new ethers.Contract(
-          CONTRACT_ADDRESS,
-          CrowdfundingABI.abi,
-          signer
-        );
-        setContract(newContract);
-      } catch (err) {
-        console.error(err);
-        setError(err.message || "Failed to initialize contract");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    init();
-
-    // Event listeners
-    if (window.ethereum) {
-      window.ethereum.on("accountsChanged", (accounts) => {
-        setAccount(accounts[0] || null);
-      });
-      window.ethereum.on("chainChanged", () => {
-        window.location.reload();
-      });
+      };
+      initContract();
     }
-
-    return () => {
-      if (window.ethereum) {
-        window.ethereum.removeAllListeners("accountsChanged");
-        window.ethereum.removeAllListeners("chainChanged");
-      }
-    };
-  }, []); // Empty dependency array to run once
+  }, [active, library]);
 
   useEffect(() => {
     if (contract) {
       fetchCampaigns();
+      const interval = setInterval(async () => {
+        const now = Math.floor(Date.now() / 1000);
+        for (const campaign of campaigns) {
+          if (campaign.isActive && Number(campaign.deadline) / 1000 < now && !campaign.completed && campaign.raised < campaign.goal) {
+            try {
+              const tx = await contract.autoRefund(campaign.id);
+              await tx.wait();
+              await fetchCampaigns();
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
+      }, 60000);
+      return () => clearInterval(interval);
     }
-  }, [contract, account]); // Fetch campaigns when contract or account changes
+  }, [contract, campaigns]);
+
+  const connectWallet = async (connector) => {
+    setConnecting(true);
+    try {
+      await activate(connector);
+    } catch (err) {
+      setError("Failed to connect wallet");
+    } finally {
+      setConnecting(false);
+    }
+  };
 
   const createCampaign = async () => {
-    if (!contract || !goal || !duration) return;
+    if (!contract || !goal || !duration || !email || !description || !details) return;
     setLoading(true);
     try {
       const tx = await contract.createCampaign(
         ethers.parseEther(goal),
-        duration
+        duration,
+        email,
+        description,
+        details,
+        selectedCampaignToken
       );
       await tx.wait();
       alert("Campaign created!");
       setGoal("");
       setDuration("");
+      setEmail("");
+      setDescription("");
+      setDetails("");
+      setSelectedCampaignToken(TOKENS[0].address);
       await fetchCampaigns();
     } catch (err) {
       console.error(err);
-      setError("Failed to create campaign");
+      setError(err.reason || "Failed to create campaign");
     } finally {
       setLoading(false);
     }
   };
 
-  const donate = async () => {
-    if (!contract || !campaignId || !donationAmount) return;
+  const donate = async (campaignId, tokenAddr) => {
+    if (!contract || !donationAmount) return;
     setLoading(true);
     try {
-      const tx = await contract.donate(campaignId, {
-        value: ethers.parseEther(donationAmount),
-      });
+      let tx;
+      if (tokenAddr === "0x0000000000000000000000000000000000000000") {
+        tx = await contract.donate(campaignId, ethers.parseUnits(donationAmount, 18), tokenAddr, {
+          value: ethers.parseEther(donationAmount),
+        });
+      } else {
+        tx = await contract.donate(campaignId, ethers.parseUnits(donationAmount, 6), tokenAddr);
+      }
       await tx.wait();
       alert("Donation successful!");
       setDonationAmount("");
-      setCampaignId("");
       await fetchCampaigns();
     } catch (err) {
       console.error(err);
-      setError("Failed to donate");
+      setError(err.reason || "Failed to donate");
     } finally {
       setLoading(false);
     }
@@ -176,23 +189,23 @@ function App() {
       await fetchCampaigns();
     } catch (err) {
       console.error(err);
-      setError("Failed to disburse funds");
+      setError(err.reason || "Failed to disburse funds");
     } finally {
       setLoading(false);
     }
   };
 
-  const refund = async (id) => {
+  const refund = async (id, tokenAddr) => {
     if (!contract) return;
     setLoading(true);
     try {
-      const tx = await contract.refund(id);
+      const tx = await contract.refund(id, tokenAddr);
       await tx.wait();
       alert("Refund successful!");
       await fetchCampaigns();
     } catch (err) {
       console.error(err);
-      setError("Failed to refund");
+      setError(err.reason || "Failed to refund");
     } finally {
       setLoading(false);
     }
@@ -200,82 +213,156 @@ function App() {
 
   return (
     <div className="App">
-      <h1>Crowdfunding DApp</h1>
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: "red" }}>{error}</p>}
-      {account ? (
-        <p>Connected Account: {account}</p>
-      ) : (
-        <p>Please connect MetaMask</p>
-      )}
+      <header className="header">
+        <h1>Crowdfunding DApp</h1>
+        {active ? (
+          <div>
+            <p className="account">Connected: {account.slice(0, 6)}...{account.slice(-4)}</p>
+            <button className="connect-btn" onClick={deactivate}>Disconnect</button>
+          </div>
+        ) : (
+          <div className="wallet-options">
+            <button
+              className="connect-btn"
+              onClick={() => connectWallet(injected)}
+              disabled={connecting}
+            >
+              MetaMask
+            </button>
+            <button
+              className="connect-btn"
+              onClick={() => connectWallet(walletconnect)}
+              disabled={connecting}
+            >
+              WalletConnect
+            </button>
+            <button
+              className="connect-btn"
+              onClick={() => connectWallet(coinbaseWallet)}
+              disabled={connecting}
+            >
+              Coinbase Wallet
+            </button>
+          </div>
+        )}
+      </header>
+      {loading && <p className="loading">Loading...</p>}
+      {error && <p className="error">{error}</p>}
 
-      <h2>Create Campaign</h2>
-      <input
-        type="text"
-        placeholder="Goal (ETH)"
-        value={goal}
-        onChange={(e) => setGoal(e.target.value)}
-        disabled={loading}
-      />
-      <input
-        type="text"
-        placeholder="Duration (seconds)"
-        value={duration}
-        onChange={(e) => setDuration(e.target.value)}
-        disabled={loading}
-      />
-      <button onClick={createCampaign} disabled={loading}>
-        Create Campaign
-      </button>
-
-      <h2>Donate to Campaign</h2>
-      <input
-        type="text"
-        placeholder="Campaign ID"
-        value={campaignId}
-        onChange={(e) => setCampaignId(e.target.value)}
-        disabled={loading}
-      />
-      <input
-        type="text"
-        placeholder="Amount (ETH)"
-        value={donationAmount}
-        onChange={(e) => setDonationAmount(e.target.value)}
-        disabled={loading}
-      />
-      <button onClick={donate} disabled={loading}>
-        Donate
-      </button>
-
-      <h2>Campaigns</h2>
-      {campaigns.length === 0 && <p>No campaigns available</p>}
-      {campaigns.map((campaign) => (
-        <div key={campaign.id} className="campaign">
-          <p>ID: {campaign.id}</p>
-          <p>Creator: {campaign.creator}</p>
-          <p>Goal: {campaign.goal} ETH</p>
-          <p>Raised: {campaign.raised} ETH</p>
-          <p>Deadline: {campaign.deadline}</p>
-          <p>Status: {campaign.completed ? "Completed" : "Active"}</p>
-          {!campaign.completed && (
-            <>
-              <button
-                onClick={() => disburseFunds(campaign.id)}
-                disabled={loading}
-              >
-                Disburse Funds
-              </button>
-              <button
-                onClick={() => refund(campaign.id)}
-                disabled={loading}
-              >
-                Refund
-              </button>
-            </>
-          )}
+      <section className="create-campaign">
+        <h2>Create Campaign</h2>
+        <div className="form-group">
+          <input
+            type="text"
+            placeholder="Goal (in selected token)"
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            disabled={loading}
+          />
+          <input
+            type="text"
+            placeholder="Duration (seconds)"
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            disabled={loading}
+          />
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={loading}
+          />
+          <textarea
+            placeholder="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            disabled={loading}
+          />
+          <textarea
+            placeholder="Project Details"
+            value={details}
+            onChange={(e) => setDetails(e.target.value)}
+            disabled={loading}
+          />
+          <select
+            value={selectedCampaignToken}
+            onChange={(e) => setSelectedCampaignToken(e.target.value)}
+            disabled={loading}
+          >
+            {TOKENS.map((token) => (
+              <option key={token.address} value={token.address}>
+                {token.name}
+              </option>
+            ))}
+          </select>
+          <button className="action-btn" onClick={createCampaign} disabled={loading}>
+            Create Campaign
+          </button>
         </div>
-      ))}
+      </section>
+
+      <section className="campaigns">
+        <h2>Campaigns</h2>
+        {campaigns.length === 0 && <p>No campaigns available</p>}
+        {campaigns.map((campaign) => (
+          <div key={campaign.id} className="campaign-card">
+            <h3>Campaign #{campaign.id}</h3>
+            <p><strong>Creator:</strong> {campaign.creator}</p>
+            <p><strong>Email:</strong> {campaign.email}</p>
+            <p><strong>Goal:</strong> {campaign.goal} {TOKENS.find((t) => t.address === campaign.token)?.name}</p>
+            <p><strong>Raised:</strong> {campaign.raised} {TOKENS.find((t) => t.address === campaign.token)?.name}</p>
+            <p><strong>Deadline:</strong> {campaign.deadline}</p>
+            <p><strong>Status:</strong> {campaign.completed ? "Completed" : campaign.isActive ? "Active" : "Inactive"}</p>
+            <p><strong>Description:</strong> {campaign.description}</p>
+            <p><strong>Details:</strong> {campaign.details}</p>
+            {!campaign.completed && (
+              <div className="donation-section">
+                <input
+                  type="text"
+                  placeholder={`Donation Amount (${TOKENS.find((t) => t.address === campaign.token)?.name})`}
+                  value={donationAmount}
+                  onChange={(e) => setDonationAmount(e.target.value)}
+                  disabled={loading || !campaign.isActive}
+                />
+                <button
+                  className="action-btn"
+                  onClick={() => donate(campaign.id, campaign.token)}
+                  disabled={loading || !campaign.isActive}
+                  title={campaign.isActive ? "" : "Campaign is not active"}
+                >
+                  Donate
+                </button>
+                <button
+                  className="action-btn"
+                  onClick={() => disburseFunds(campaign.id)}
+                  disabled={loading || campaign.isActive}
+                  title={campaign.isActive ? "Campaign is still active" : ""}
+                >
+                  Disburse Funds
+                </button>
+                <button
+                  className="action-btn"
+                  onClick={() => refund(campaign.id, campaign.token)}
+                  disabled={loading || campaign.isActive}
+                  title={campaign.isActive ? "Campaign is still active" : ""}
+                >
+                  Refund
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </section>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <Web3ReactProvider getLibrary={getLibrary}>
+      <AppContent />
+    </Web3ReactProvider>
   );
 }
 

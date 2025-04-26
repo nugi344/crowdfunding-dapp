@@ -1,33 +1,213 @@
-.App {
-  text-align: center;
-  padding: 20px;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-h1 {
+body {
+  font-family: 'Arial', sans-serif;
+  background-color: #f4f7fa;
   color: #333;
 }
 
-input {
-  margin: 10px;
-  padding: 5px;
+.App {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
 }
 
-button {
-  margin: 10px;
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background-color: #007bff;
+  color: white;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.header h1 {
+  font-size: 24px;
+}
+
+.account {
+  font-size: 14px;
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 8px 16px;
+  border-radius: 4px;
+}
+
+.connect-btn {
   padding: 10px 20px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.connect-btn:hover {
+  background-color: #218838;
+}
+
+.connect-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.loading {
+  text-align: center;
+  color: #007bff;
+  font-size: 18px;
+  margin: 20px 0;
+}
+
+.error {
+  text-align: center;
+  color: #dc3545;
+  font-size: 16px;
+  margin: 20px 0;
+  background-color: #f8d7da;
+  padding: 10px;
+  border-radius: 4px;
+}
+
+.create-campaign {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 40px;
+}
+
+.create-campaign h2 {
+  margin-bottom: 20px;
+  color: #007bff;
+}
+
+.form-group {
+  display: grid;
+  gap: 15px;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+  padding: 12px;
+  font-size: 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 100%;
+  transition: border-color 0.3s;
+}
+
+.form-group textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  border-color: #007bff;
+  outline: none;
+}
+
+.form-group input:disabled,
+.form-group textarea:disabled,
+.form-group select:disabled {
+  background-color: #f8f9fa;
+  cursor: not-allowed;
+}
+
+.action-btn {
+  padding: 12px 24px;
   background-color: #007bff;
   color: white;
   border: none;
+  border-radius: 4px;
   cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s;
 }
 
-button:hover {
+.action-btn:hover {
   background-color: #0056b3;
 }
 
-.campaign {
-  border: 1px solid #ccc;
-  padding: 10px;
-  margin: 10px auto;
-  max-width: 500px;
+.action-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.campaigns {
+  margin-top: 40px;
+}
+
+.campaigns h2 {
+  margin-bottom: 20px;
+  color: #007bff;
+}
+
+.campaign-card {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+  transition: transform 0.3s;
+}
+
+.campaign-card:hover {
+  transform: translateY(-5px);
+}
+
+.campaign-card h3 {
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.campaign-card p {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.campaign-card p strong {
+  color: #007bff;
+}
+
+.donation-section {
+  margin-top: 15px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.donation-section input {
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .App {
+    padding: 10px;
+  }
+
+  .header {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .form-group {
+    grid-template-columns: 1fr;
+  }
+
+  .donation-section {
+    flex-direction: column;
+  }
+
+  .donation-section input {
+    width: 100%;
+  }
 }
