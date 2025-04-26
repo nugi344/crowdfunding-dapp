@@ -18,7 +18,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Define fetchCampaigns in component scope
   const fetchCampaigns = async () => {
     if (!contract) return;
     setLoading(true);
@@ -59,7 +58,6 @@ function App() {
           network: Network.ETH_SEPOLIA,
         });
 
-        // Check if already connected
         const accounts = await window.ethereum.request({
           method: "eth_accounts",
         });
@@ -67,7 +65,6 @@ function App() {
         if (accounts.length > 0) {
           setAccount(accounts[0]);
         } else {
-          // Request connection if not connected
           try {
             await window.ethereum.request({
               method: "eth_requestAccounts",
@@ -78,7 +75,7 @@ function App() {
             setAccount(newAccounts[0]);
           } catch (err) {
             if (err.code === -32002) {
-              setError("MetaMask connection request already pending. Please check MetaMask.");
+              setError("MetaMask connection request pending. Please check MetaMask.");
             } else {
               setError("Failed to connect MetaMask");
             }
@@ -88,13 +85,12 @@ function App() {
 
         const provider = new ethers.BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
-        const contract = new ethers.Contract(
+        const newContract = new ethers.Contract(
           CONTRACT_ADDRESS,
           CrowdfundingABI.abi,
           signer
         );
-        setContract(contract);
-        await fetchCampaigns();
+        setContract(newContract);
       } catch (err) {
         console.error(err);
         setError(err.message || "Failed to initialize contract");
@@ -105,25 +101,29 @@ function App() {
 
     init();
 
-    // Listen for account or network changes
+    // Event listeners
     if (window.ethereum) {
       window.ethereum.on("accountsChanged", (accounts) => {
         setAccount(accounts[0] || null);
-        if (contract) fetchCampaigns();
       });
       window.ethereum.on("chainChanged", () => {
         window.location.reload();
       });
     }
 
-    // Cleanup listeners
     return () => {
       if (window.ethereum) {
         window.ethereum.removeAllListeners("accountsChanged");
         window.ethereum.removeAllListeners("chainChanged");
       }
     };
-  }, [contract]);
+  }, []); // Empty dependency array to run once
+
+  useEffect(() => {
+    if (contract) {
+      fetchCampaigns();
+    }
+  }, [contract, account]); // Fetch campaigns when contract or account changes
 
   const createCampaign = async () => {
     if (!contract || !goal || !duration) return;
